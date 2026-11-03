@@ -1,34 +1,128 @@
 import { useState } from 'react';
-import { Play, FileCode, CheckCircle, AlertCircle, Loader2, RotateCcw } from 'lucide-react';
+import {
+  Play,
+  FileCode,
+  Loader2,
+  RotateCcw,
+  BookOpen
+} from 'lucide-react';
 import CodeEditor from './components/CodeEditor';
-import OutputPanel from './components/OutputPanel';
+import OutputPanel, { CompileResult } from './components/OutputPanel';
 
-interface CompileResult {
-  status: string;
-  tokens?: Array<{ type: string; value: string; line: number }>;
-  errors?: Array<{ type: string; message: string; line?: number }>;
-  message?: string;
+const PRESET_EXAMPLES = [
+  {
+    id: 'missing_semicolon_header',
+    name: '1. Missing Semicolon & Header',
+    description: 'Demonstrates automated header injection and phrase-level semicolon insertion.',
+    code: `int main() {
+    int x = 10;
+    printf("Hello, World!")
+    return 0;
+}`
+  },
+  {
+    id: 'scanf_pointer_error',
+    name: '2. Scanf Missing & Operator',
+    description: 'Demonstrates semantic pointer detection and automatic address-of (&) fix.',
+    code: `#include <stdio.h>
+int main() {
+    int age;
+    printf("Enter your age: ");
+    scanf("%d", age);
+    printf("Age is %d\\n", age);
+    return 0;
+}`
+  },
+  {
+    id: 'semantic_type_undeclared',
+    name: '3. Undeclared Var & Type Mismatch',
+    description: 'Demonstrates Symbol Table lookup, undeclared identifier, and type checking.',
+    code: `#include <stdio.h>
+int main() {
+    int count = 5;
+    total = count + 10;
+    int invalid = "hello";
+    return 0;
+}`
+  },
+  {
+    id: 'control_flow_tac',
+    name: '4. Control Flow & 3-Address Code',
+    description: 'Generates Three-Address Code (TAC), Labels, and Quadruples for branches.',
+    code: `#include <stdio.h>
+int main() {
+    int score = 85;
+    if (score >= 50) {
+        printf("Passed!\\n");
+    } else {
+        printf("Failed!\\n");
+    }
+    return 0;
+}`
+  },
+  {
+    id: 'clean_optimization',
+    name: '5. Optimization Suite (Folding, Strength Reduction, CSE, DCE)',
+    description: 'Demonstrates Constant Folding, Strength Reduction (x*2 -> x+x), Algebraic Identities, CSE, and DCE.',
+    code: `#include <stdio.h>
+
+int compute(int x) {
+    // 1. Strength Reduction: multiplication by 2 -> addition (x + x)
+    int double_val = x * 2;
+    // 2. Strength Reduction: power-of-2 multiplication -> bitwise left-shift (x << 2)
+    int quad_val = x * 4;
+    // 3. Strength Reduction: power-of-2 division -> bitwise right-shift (x >> 1)
+    int div_val = x / 2;
+
+    // 4. Algebraic Transformations (Additive/Multiplicative Identity & Zero Property)
+    int ident_add = x + 0;
+    int ident_mul = x * 1;
+    int zero_prop = x * 0;
+
+    // 5. Common Subexpression Elimination (CSE: reuses calculation)
+    int cse1 = x + 15;
+    int cse2 = x + 15;
+
+    return double_val + cse1 + cse2;
 }
 
-function App() {
-  const defaultCode = `int main() {
-    int x = 10;
-    printf("Hello, World!");
+int main() {
+    // 6. Constant Folding (evaluated at compile-time: 5 * 2 = 10)
+    int count = 5 * 2;
+    int result = compute(count);
+    printf("Result is %d\\n", result);
     return 0;
-}`;
 
-  const [code, setCode] = useState(defaultCode);
+    // 7. Dead Code Elimination (unreachable code pruned)
+    int dead_audit = 999;
+}`
+  }
+];
+
+function App() {
+  const [selectedExampleId, setSelectedExampleId] = useState<string>('missing_semicolon_header');
+  const [code, setCode] = useState(PRESET_EXAMPLES[0].code);
   const [result, setResult] = useState<CompileResult | null>(null);
   const [fixes, setFixes] = useState<any[] | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isResetting, setIsResetting] = useState(false);
 
+  const handleSelectExample = (id: string) => {
+    setSelectedExampleId(id);
+    const ex = PRESET_EXAMPLES.find(e => e.id === id);
+    if (ex) {
+      setCode(ex.code);
+      setResult(null);
+      setFixes(null);
+      setError(null);
+    }
+  };
+
   const handleCompile = async () => {
     setIsCompiling(true);
     setError(null);
-    
-    // Use local server - no API key needed, works fully locally with Ollama
+
     const localServerUrl = 'http://127.0.0.1:8001';
 
     try {
@@ -44,19 +138,15 @@ function App() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      
-      // Map the response to our expected format
-      setResult({
-        status: data.status === 'success' ? 'success' : 'error',
-        message: data.message || (data.status === 'success' ? 'Compilation successful' : 'Compilation failed'),
-        errors: data.errors || [],
-      });
-      
-      // Set fixes from the response
+      const data: CompileResult = await response.json();
+      setResult(data);
       setFixes(data.fixes || null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to connect to local compiler server. Make sure local_server.py is running on port 8001.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to connect to local compiler server. Ensure python local_server.py is running on port 8001.'
+      );
       setResult(null);
       setFixes(null);
     } finally {
@@ -66,13 +156,14 @@ function App() {
 
   const handleReset = () => {
     setIsResetting(true);
-    setCode(defaultCode);
+    const ex = PRESET_EXAMPLES.find(e => e.id === selectedExampleId) || PRESET_EXAMPLES[0];
+    setCode(ex.code);
     setResult(null);
+    setFixes(null);
     setError(null);
     setTimeout(() => setIsResetting(false), 300);
   };
 
-  // Apply a single fix object to the current code. fix.edit has {type,line,content} or replace
   const applyFix = (fix: any) => {
     if (!fix || !fix.edit) return;
     const edit = fix.edit;
@@ -80,10 +171,12 @@ function App() {
     const lineIndex = Math.max(0, Math.min(lines.length, (edit.line || 1) - 1));
 
     if (edit.type === 'insert') {
-      // insert before lineIndex (1-based line number)
-      lines.splice(lineIndex, 0, ...(edit.content || '').split(/\r?\n/));
+      const contentLines = (edit.content || '').replace(/\r\n/g, '\n').split('\n');
+      if (contentLines[contentLines.length - 1] === '') {
+        contentLines.pop();
+      }
+      lines.splice(lineIndex, 0, ...contentLines);
     } else if (edit.type === 'replace') {
-      // replace the specific line
       if (typeof edit.line === 'number') {
         lines[lineIndex] = edit.replacement !== undefined ? edit.replacement : edit.content || '';
       }
@@ -91,75 +184,113 @@ function App() {
 
     const newCode = lines.join('\n');
     setCode(newCode);
-    // after applying a fix, clear fixes/result so user can re-run compile
-    setFixes(null);
-    setResult(null);
+
+    setTimeout(() => {
+      fetch('http://127.0.0.1:8001/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: newCode }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          setResult(data);
+          setFixes(data.fixes || null);
+        })
+        .catch(() => {
+          setFixes(null);
+          setResult(null);
+        });
+    }, 100);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white">
-      <header className="bg-white border-b border-blue-100 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+    <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
+      {/* Top Navbar */}
+      <header className="bg-slate-900 border-b border-slate-800 text-white shadow-sm sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <FileCode className="w-8 h-8 text-primary-600" />
-            <h1 className="text-2xl font-bold text-gray-900">
-              Adaptive Error Recovery Compiler
-            </h1>
+            <div className="p-2 bg-blue-600 rounded-xl shadow-inner">
+              <FileCode className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-base sm:text-lg font-bold tracking-tight text-white">
+                Adaptive Error Recovery Compiler
+              </h1>
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Code Input</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleReset}
-                  disabled={isCompiling || isResetting}
-                  className={`flex items-center gap-2 px-3 py-2 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 text-gray-700 rounded-lg transition-all shadow-sm font-medium ${
-                    isResetting ? 'animate-reset-button' : ''
-                  }`}
-                  title="Reset code to default"
-                >
-                  <RotateCcw className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />
-                </button>
-                <button
-                  onClick={handleCompile}
-                  disabled={isCompiling}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-primary-400 text-white rounded-lg transition-colors shadow-sm font-medium"
-                >
-                  {isCompiling ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Compiling...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4" />
-                      Compile Code
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
+      {/* Main Container */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5 flex-1 w-full space-y-4">
+        {/* Toolbar: Example Selector & Primary Actions */}
+        <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-1">
+            <BookOpen className="w-4 h-4 text-slate-500 flex-shrink-0" />
+            <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">
+              Test Presets:
+            </span>
+            <select
+              value={selectedExampleId}
+              onChange={e => handleSelectExample(e.target.value)}
+              className="text-xs bg-slate-50 border border-slate-300 text-slate-800 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500 font-medium flex-1 max-w-md"
+            >
+              {PRESET_EXAMPLES.map(ex => (
+                <option key={ex.id} value={ex.id}>
+                  {ex.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              onClick={handleReset}
+              disabled={isCompiling || isResetting}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-all shadow-xs"
+              title="Reset code editor"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+              <span>Reset</span>
+            </button>
+
+            <button
+              onClick={handleCompile}
+              disabled={isCompiling}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-xs font-semibold transition-all shadow-sm"
+            >
+              {isCompiling ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Compiling...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Compile Code</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* 2-Column Split View: Editor on Left, Output on Right */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <div className="space-y-2">
+            <div className="px-1">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Source Code Input
+              </span>
+            </div>
             <CodeEditor value={code} onChange={setCode} />
           </div>
 
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-gray-900">Output</h2>
-              {result && (
-                result.status === 'success' ? (
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                ) : (
-                  <AlertCircle className="w-5 h-5 text-red-600" />
-                )
-              )}
+          <div className="space-y-2">
+            <div className="px-1">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Compiler Analysis & Pipeline
+              </span>
             </div>
-
             <OutputPanel
               result={result}
               error={error}
@@ -170,6 +301,11 @@ function App() {
           </div>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-slate-200 py-2.5 text-center text-xs text-slate-400 font-medium">
+        Adaptive Error Recovery Compiler
+      </footer>
     </div>
   );
 }
